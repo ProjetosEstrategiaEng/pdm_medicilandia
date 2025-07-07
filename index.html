@@ -54,10 +54,138 @@
       white-space: pre-line;
       text-align: center;
     }
+    .layer-control-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      background: white;
+      border: 2px solid rgba(0,0,0,0.2);
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      transition: all 0.3s ease;
+    }
+    .layer-control-btn:hover {
+      background: #f0f0f0;
+      border-color: rgba(0,0,0,0.3);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
+    .layer-control-btn.active {
+      background: #007cba;
+      color: white;
+      border-color: #005a87;
+    }
+    .leaflet-control-layers {
+      display: none;
+    }
+    .custom-layer-panel {
+      position: absolute;
+      top: 60px;
+      right: 10px;
+      z-index: 999;
+      background: white;
+      border: 2px solid rgba(0,0,0,0.2);
+      border-radius: 4px;
+      padding: 15px;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      min-width: 200px;
+      display: none;
+    }
+    .custom-layer-panel h4 {
+      margin: 0 0 10px 0;
+      color: #333;
+      font-size: 14px;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 5px;
+    }
+    .layer-group {
+      margin-bottom: 15px;
+    }
+    .layer-group h5 {
+      margin: 0 0 8px 0;
+      color: #666;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .layer-item {
+      margin: 5px 0;
+      display: flex;
+      align-items: center;
+    }
+    .layer-item input[type="radio"],
+    .layer-item input[type="checkbox"] {
+      margin-right: 8px;
+    }
+    .layer-item label {
+      cursor: pointer;
+      font-size: 11px;
+      color: #333;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  
+  <!-- Botão de controle de camadas -->
+  <button id="layerControlBtn" class="layer-control-btn" onclick="toggleLayerPanel()">
+    📋 Camadas
+  </button>
+  
+  <!-- Painel de camadas personalizado -->
+  <div id="layerPanel" class="custom-layer-panel">
+    <h4>Controle de Camadas</h4>
+    
+    <!-- Mapas Base -->
+    <div class="layer-group">
+      <h5>Mapas Base</h5>
+      <div class="layer-item">
+        <input type="radio" id="osm" name="basemap" value="osm" checked>
+        <label for="osm">OpenStreetMap</label>
+      </div>
+      <div class="layer-item">
+        <input type="radio" id="esri" name="basemap" value="esri">
+        <label for="esri">Esri World Imagery</label>
+      </div>
+      <div class="layer-item">
+        <input type="radio" id="carto" name="basemap" value="carto">
+        <label for="carto">CartoDB Voyager</label>
+      </div>
+    </div>
+    
+    <!-- Camadas de Dados -->
+    <div class="layer-group">
+      <h5>Camadas de Dados</h5>
+      <div class="layer-item">
+        <input type="checkbox" id="lotes" name="overlay" value="lotes" checked>
+        <label for="lotes">Lotes</label>
+      </div>
+      <div class="layer-item">
+        <input type="checkbox" id="rotulos" name="overlay" value="rotulos">
+        <label for="rotulos">Rótulos dos Lotes</label>
+      </div>
+      <div class="layer-item">
+        <input type="checkbox" id="bairros" name="overlay" value="bairros">
+        <label for="bairros">Bairros</label>
+      </div>
+      <div class="layer-item">
+        <input type="checkbox" id="perimetro" name="overlay" value="perimetro">
+        <label for="perimetro">Perímetro Urbano</label>
+      </div>
+      <div class="layer-item">
+        <input type="checkbox" id="zoneamento" name="overlay" value="zoneamento">
+        <label for="zoneamento">Zoneamento Urbano</label>
+      </div>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
     // Mapas de fundo
@@ -141,6 +269,71 @@
       });
     }
 
+    // Função para alternar a exibição do painel de camadas
+    function toggleLayerPanel() {
+      const panel = document.getElementById('layerPanel');
+      const btn = document.getElementById('layerControlBtn');
+      
+      if (panel.style.display === 'none' || panel.style.display === '') {
+        panel.style.display = 'block';
+        btn.classList.add('active');
+      } else {
+        panel.style.display = 'none';
+        btn.classList.remove('active');
+      }
+    }
+    
+    // Função para controlar mapas base
+    function changeBasemap(basemapName) {
+      // Remove todos os mapas base
+      map.removeLayer(osm);
+      map.removeLayer(esri);
+      map.removeLayer(carto);
+      
+      // Adiciona o mapa base selecionado
+      switch(basemapName) {
+        case 'osm':
+          map.addLayer(osm);
+          break;
+        case 'esri':
+          map.addLayer(esri);
+          break;
+        case 'carto':
+          map.addLayer(carto);
+          break;
+      }
+    }
+    
+    // Função para controlar overlays
+    function toggleOverlay(overlayName, checked) {
+      if (checked) {
+        if (overlayMaps[overlayName]) {
+          map.addLayer(overlayMaps[overlayName]);
+        }
+      } else {
+        if (overlayMaps[overlayName]) {
+          map.removeLayer(overlayMaps[overlayName]);
+        }
+      }
+    }
+    
+    // Adicionar event listeners para os controles
+    document.addEventListener('DOMContentLoaded', function() {
+      // Event listeners para mapas base
+      document.querySelectorAll('input[name="basemap"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+          changeBasemap(this.value);
+        });
+      });
+      
+      // Event listeners para overlays
+      document.querySelectorAll('input[name="overlay"]').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+          toggleOverlay(this.value, this.checked);
+        });
+      });
+    });
+
     geojsonFiles.forEach(file => {
       fetch(file)
         .then(response => response.json())
@@ -149,7 +342,7 @@
           let style = {};
           // Nomes amigáveis e estilos para camadas específicas
           if (file === "data/zon_urb_med.geojson") {
-            name = "Zoneamento Urbano";
+            name = "zoneamento";
             // Função de estilo baseada na propriedade Sigla
             style = function(feature) {
               const sigla = feature.properties.Sigla;
@@ -172,17 +365,17 @@
             };
           }
           if (file === "data/perim_urb_med.geojson") {
-            name = "Perímetro Urbano";
+            name = "perimetro";
             style = { color: '#000', weight: 4, fill: false };
           }
           if (file === "data/bairros_med.geojson") {
-            name = "Bairros";
+            name = "bairros";
             style = { color: '#154360', weight: 2, fillColor: '#5dade2', fillOpacity: 0.2 };
             // Adiciona marca d'água com o nome do bairro
             style.onEachFeature = function(feature, layer) {};
           }
           if (file === "data/lotes_medicilandia3.geojson") {
-            name = "Lotes";
+            name = "lotes";
             style = { color: '#229954', weight: 1, fillColor: '#58d68d', fillOpacity: 0.2 };
           }
           let geojsonOptions = style ? { style } : {};
@@ -236,15 +429,15 @@
           overlayMaps[name] = geojsonLayer;
           // Adiciona a camada de rótulos dos lotes ao controle de camadas
           if (file === "data/lotes_medicilandia3.geojson") {
-            overlayMaps["Rótulos dos Lotes"] = lotesLabelLayer;
+            overlayMaps["rotulos"] = lotesLabelLayer;
           }
           loadedCount++;
           if (loadedCount === geojsonFiles.length) {
             // Adiciona apenas a camada Lotes ao mapa por padrão
-            if (overlayMaps["Lotes"]) map.addLayer(overlayMaps["Lotes"]);
+            if (overlayMaps["lotes"]) map.addLayer(overlayMaps["lotes"]);
             // Cria os rótulos dos lotes (mas não adiciona ao mapa por padrão)
             lotesLabelLayer.clearLayers();
-            overlayMaps["Lotes"].eachLayer(function(lyr) {
+            overlayMaps["lotes"].eachLayer(function(lyr) {
               if (lyr.feature && lyr.feature.geometry) {
                 let latlng = null;
                 if (lyr.getBounds) {
@@ -265,15 +458,15 @@
             });
             // Atualiza o scale dos rótulos ao iniciar
             updateLoteLabelsScale();
-            L.control.layers(baseMaps, overlayMaps, {collapsed: false}).addTo(map);
+            // Removido o controle de camadas padrão do Leaflet
 
             // Adiciona evento para mostrar/remover marca d'água dos bairros
             map.on('overlayadd', function(e) {
-              if (e.name === "Bairros") {
+              if (e.name === "bairros") {
                 // Cria o grupo de marcas d'água
                 if (bairrosWatermarkLayer) map.removeLayer(bairrosWatermarkLayer);
                 bairrosWatermarkLayer = L.layerGroup();
-                overlayMaps["Bairros"].eachLayer(function(lyr) {
+                overlayMaps["bairros"].eachLayer(function(lyr) {
                   if (lyr.feature && lyr.feature.geometry) {
                     // Calcula o centroide do polígono
                     let latlng = null;
@@ -293,12 +486,12 @@
                 });
                 bairrosWatermarkLayer.addTo(map);
               }
-              if (e.name === "Rótulos dos Lotes") {
+              if (e.name === "rotulos") {
                 updateLoteLabelsScale();
               }
             });
             map.on('overlayremove', function(e) {
-              if (e.name === "Bairros" && bairrosWatermarkLayer) {
+              if (e.name === "bairros" && bairrosWatermarkLayer) {
                 map.removeLayer(bairrosWatermarkLayer);
                 bairrosWatermarkLayer = null;
               }
