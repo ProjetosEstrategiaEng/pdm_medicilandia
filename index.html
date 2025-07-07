@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDM - Medicilândia</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      min-height: 100vh;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    #map {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      min-height: 100vh;
+      min-width: 100vw;
+    }
+    @media (max-width: 600px) {
+      #map {
+        height: 100dvh;
+        width: 100vw;
+      }
+    }
+    .bairro-watermark {
+      pointer-events: none;
+      opacity: 0.5;
+      font-size: 2em;
+      font-weight: bold;
+      color: #154360;
+      text-shadow: 1px 1px 8px #fff, 0 0 2px #000;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .lote-label {
+      pointer-events: none;
+      opacity: 0.85;
+      font-size: 0.75em;
+      font-weight: normal;
+      color: #229954;
+      /* text-shadow: 1px 1px 6px #fff, 0 0 2px #000; */
+      /* background: rgba(255,255,255,0.7); */
+      /* border-radius: 6px; */
+      /* padding: 2px 6px; */
+      user-select: none;
+      white-space: pre-line;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    // Mapas de fundo
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    });
+    const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      attribution: 'Tiles © Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+    });
+    const carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors © CARTO'
+    });
+
+    // Inicializa o mapa (será ajustado pelo Perímetro Urbano)
+    const map = L.map('map', {
+      center: [-3.45, -52.89], // Valor temporário, será ajustado
+      zoom: 13,
+      layers: [osm]
+    });
+
+    // Controle de camadas
+    const baseMaps = {
+      "OpenStreetMap": osm,
+      "Esri World Imagery": esri,
+      "CartoDB Voyager": carto
+    };
+    
+    // Overlays para os GeoJSONs
+    const overlayMaps = {};
+    const geojsonFiles = [
+      "data/bairros_med.geojson",
+      "data/perim_urb_med.geojson",
+      "data/zon_urb_med.geojson",
+      "data/lotes_medicilandia3.geojson"
+    ];
+
+    let loadedCount = 0;
+    let bairrosWatermarkLayer = null;
+    let lotesLabelLayer = L.layerGroup();
+
+    // Função para calcular o ângulo do eixo principal (PCA) de um polígono (em graus)
+    function getPolygonPrincipalAxisAngle(coords) {
+      if (!coords || coords.length < 2) return 0;
+      // Remove último ponto se for igual ao primeiro
+      if (coords.length > 2 && coords[0][0] === coords[coords.length-1][0] && coords[0][1] === coords[coords.length-1][1]) {
+        coords = coords.slice(0, -1);
+      }
+      // Calcula centroide
+      let meanX = 0, meanY = 0;
+      coords.forEach(([x, y]) => { meanX += x; meanY += y; });
+      meanX /= coords.length;
+      meanY /= coords.length;
+      // Calcula matriz de covariância
+      let sxx = 0, syy = 0, sxy = 0;
+      coords.forEach(([x, y]) => {
+        const dx = x - meanX;
+        const dy = y - meanY;
+        sxx += dx * dx;
+        syy += dy * dy;
+        sxy += dx * dy;
+      });
+      sxx /= coords.length;
+      syy /= coords.length;
+      sxy /= coords.length;
+      // Calcula ângulo do maior autovetor
+      const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+      return theta * 180 / Math.PI;
+    }
+
+    // Função para atualizar o scale dos rótulos dos lotes conforme o zoom
+    function updateLoteLabelsScale() {
+      const maxZoom = 19;
+      const currentZoom = map.getZoom();
+      const scale = Math.pow(2, currentZoom - maxZoom);
+      document.querySelectorAll('.lote-label span').forEach(el => {
+        el.style.transform = `scale(${scale})`;
+        el.style.transformOrigin = 'center center';
+      });
+    }
+
+    geojsonFiles.forEach(file => {
+      fetch(file)
+        .then(response => response.json())
+        .then(data => {
+          let name = file.split('/').pop().replace('.geojson','');
+          let style = {};
+          // Nomes amigáveis e estilos para camadas específicas
+          if (file === "data/zon_urb_med.geojson") {
+            name = "Zoneamento Urbano";
+            // Função de estilo baseada na propriedade Sigla
+            style = function(feature) {
+              const sigla = feature.properties.Sigla;
+              // Paleta de cores conforme solicitado
+              const colors = {
+                ZCS: { fillColor: '#ff9800' },      // Laranja
+                ZIA: { fillColor: '#43a047' },      // Verde
+                ZEE: { fillColor: '#1976d2' },      // Azul
+                ZEX: { fillColor: '#b0b0b0' },      // Cinza 30%
+                ZIT: { fillColor: '#e040fb' },      // Magenta
+                ZHB: { fillColor: '#f0e479' }       // Amarelo Claro
+              };
+              const base = colors[sigla] || { fillColor: '#ccc' };
+              return {
+                color: 'transparent', // Remove o contorno
+                weight: 0,
+                fillColor: base.fillColor,
+                fillOpacity: 0.7
+              };
+            };
+          }
+          if (file === "data/perim_urb_med.geojson") {
+            name = "Perímetro Urbano";
+            style = { color: '#000', weight: 4, fill: false };
+          }
+          if (file === "data/bairros_med.geojson") {
+            name = "Bairros";
+            style = { color: '#154360', weight: 2, fillColor: '#5dade2', fillOpacity: 0.2 };
+            // Adiciona marca d'água com o nome do bairro
+            style.onEachFeature = function(feature, layer) {};
+          }
+          if (file === "data/lotes_medicilandia3.geojson") {
+            name = "Lotes";
+            style = { color: '#229954', weight: 1, fillColor: '#58d68d', fillOpacity: 0.2 };
+          }
+          let geojsonOptions = style ? { style } : {};
+          // Adiciona onEachFeature para Bairros
+          if (file === "data/bairros_med.geojson") {
+            geojsonOptions.onEachFeature = function(feature, lyr) {
+              // Nada aqui, pois a marca d'água será controlada ao ativar/desativar
+            };
+          }
+          // Adiciona onEachFeature para Lotes (para rótulo estático e popup)
+          if (file === "data/lotes_medicilandia3.geojson") {
+            geojsonOptions.onEachFeature = function(feature, layer) {
+              // Adiciona popup para lotes
+              if (feature.properties) {
+                const excludedProps = ['ID', 'Shape', 'Shape_Lenght', 'Uso_Sec', 'OBJECTID', 'Shape_Length'];
+                let popupContent = '<div style="font-family: Arial, sans-serif; font-size: 11px; max-width: 260px;">';
+                popupContent += '<h4 style="margin: 0 0 8px 0; color: #333; font-size: 13px;">Informações do Lote</h4>';
+                popupContent += '<table style="width: 100%; border-collapse: collapse;">';
+                popupContent += '<tr style="background-color: #f5f5f5;"><th style="padding: 3px; text-align: left; border: 1px solid #ddd; font-size: 11px;">Campo</th><th style="padding: 3px; text-align: left; border: 1px solid #ddd; font-size: 11px;">Valor</th></tr>';
+                
+                for (let prop in feature.properties) {
+                  if (!excludedProps.includes(prop)) {
+                    // Mapeamento de nomes de campos
+                    const fieldNames = {
+                      'Qd': 'Quadra',
+                      'Shape_Area': 'Área (m²)',
+                      'Uso_Prin': 'Uso Principal',
+                      'Num_Casa': 'Número',
+                      'Inscric': 'Inscrição'
+                    };
+                    const displayName = fieldNames[prop] || prop;
+                    let displayValue = feature.properties[prop] || '';
+                    
+                    // Formatação especial para Shape_Area
+                    if (prop === 'Shape_Area' && displayValue !== '') {
+                      displayValue = parseFloat(displayValue).toLocaleString('pt-BR', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                      });
+                    }
+                    
+                    popupContent += `<tr><td style=\"padding: 3px; border: 1px solid #ddd; font-weight: bold; font-size: 11px;\">${displayName}</td><td style=\"padding: 3px; border: 1px solid #ddd; font-size: 11px;\">${displayValue}</td></tr>`;
+                  }
+                }
+                popupContent += '</table></div>';
+                layer.bindPopup(popupContent);
+              }
+            };
+          }
+          const geojsonLayer = L.geoJSON(data, geojsonOptions);
+          overlayMaps[name] = geojsonLayer;
+          // Adiciona a camada de rótulos dos lotes ao controle de camadas
+          if (file === "data/lotes_medicilandia3.geojson") {
+            overlayMaps["Rótulos dos Lotes"] = lotesLabelLayer;
+          }
+          loadedCount++;
+          if (loadedCount === geojsonFiles.length) {
+            // Adiciona apenas a camada Lotes ao mapa por padrão
+            if (overlayMaps["Lotes"]) map.addLayer(overlayMaps["Lotes"]);
+            // Cria os rótulos dos lotes (mas não adiciona ao mapa por padrão)
+            lotesLabelLayer.clearLayers();
+            overlayMaps["Lotes"].eachLayer(function(lyr) {
+              if (lyr.feature && lyr.feature.geometry) {
+                let latlng = null;
+                if (lyr.getBounds) {
+                  latlng = lyr.getBounds().getCenter();
+                }
+                if (latlng && lyr.feature.properties) {
+                  const qd = lyr.feature.properties.Qd || '';
+                  const lote = lyr.feature.properties.Lote || '';
+                  const divIcon = L.divIcon({
+                    className: 'lote-label',
+                    html: `<span>Qd: ${qd}<br>Lt: ${lote}</span>`,
+                    iconSize: [120, 38],
+                    iconAnchor: [60, 19]
+                  });
+                  lotesLabelLayer.addLayer(L.marker(latlng, { icon: divIcon, interactive: false }));
+                }
+              }
+            });
+            // Atualiza o scale dos rótulos ao iniciar
+            updateLoteLabelsScale();
+            L.control.layers(baseMaps, overlayMaps, {collapsed: false}).addTo(map);
+
+            // Adiciona evento para mostrar/remover marca d'água dos bairros
+            map.on('overlayadd', function(e) {
+              if (e.name === "Bairros") {
+                // Cria o grupo de marcas d'água
+                if (bairrosWatermarkLayer) map.removeLayer(bairrosWatermarkLayer);
+                bairrosWatermarkLayer = L.layerGroup();
+                overlayMaps["Bairros"].eachLayer(function(lyr) {
+                  if (lyr.feature && lyr.feature.geometry) {
+                    // Calcula o centroide do polígono
+                    let latlng = null;
+                    if (lyr.getBounds) {
+                      latlng = lyr.getBounds().getCenter();
+                    }
+                    if (latlng && lyr.feature.properties && lyr.feature.properties.Nome) {
+                      const divIcon = L.divIcon({
+                        className: 'bairro-watermark',
+                        html: `<span>${lyr.feature.properties.Nome}</span>`,
+                        iconSize: [200, 40],
+                        iconAnchor: [100, 20]
+                      });
+                      bairrosWatermarkLayer.addLayer(L.marker(latlng, { icon: divIcon, interactive: false }));
+                    }
+                  }
+                });
+                bairrosWatermarkLayer.addTo(map);
+              }
+              if (e.name === "Rótulos dos Lotes") {
+                updateLoteLabelsScale();
+              }
+            });
+            map.on('overlayremove', function(e) {
+              if (e.name === "Bairros" && bairrosWatermarkLayer) {
+                map.removeLayer(bairrosWatermarkLayer);
+                bairrosWatermarkLayer = null;
+              }
+              // Não precisa remover lotesLabelLayer, o Leaflet faz isso automaticamente
+            });
+            // Atualiza o scale dos rótulos ao dar zoom
+            map.on('zoomend', function() {
+              updateLoteLabelsScale();
+            });
+          }
+          if (file === "data/zon_urb_med.geojson") {
+            geojsonLayer.eachLayer(function (lyr) {
+              if (lyr.feature && lyr.feature.properties) {
+                lyr.bindPopup(`<b>${lyr.feature.properties.Sigla} - ${lyr.feature.properties.Nome}</b>`);
+              }
+            });
+          }
+          // Após criar a camada Perímetro Urbano, ajusta o mapa
+          if (file === "data/perim_urb_med.geojson") {
+            // Ajusta o mapa para o perímetro urbano na primeira carga
+            if (!map._fitDone) {
+              const tempLayer = L.geoJSON(data);
+              map.fitBounds(tempLayer.getBounds());
+              map._fitDone = true;
+            }
+          }
+
+        })
+        .catch(err => {
+          console.error('Erro ao carregar', file, err);
+          loadedCount++;
+          if (loadedCount === geojsonFiles.length) {
+            L.control.layers(baseMaps, overlayMaps, {collapsed: false}).addTo(map);
+          }
+        });
+    });
+  </script>
+</body>
+</html> 
