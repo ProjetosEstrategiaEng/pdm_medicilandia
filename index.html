@@ -310,9 +310,37 @@
         if (overlayMaps[overlayName]) {
           map.addLayer(overlayMaps[overlayName]);
         }
+        // Se for bairros, adiciona os rótulos estáticos
+        if (overlayName === 'bairros') {
+          if (bairrosWatermarkLayer) map.removeLayer(bairrosWatermarkLayer);
+          bairrosWatermarkLayer = L.layerGroup();
+          overlayMaps['bairros'].eachLayer(function(lyr) {
+            if (lyr.feature && lyr.feature.geometry) {
+              let latlng = null;
+              if (lyr.getBounds) {
+                latlng = lyr.getBounds().getCenter();
+              }
+              if (latlng && lyr.feature.properties && lyr.feature.properties.Nome) {
+                const divIcon = L.divIcon({
+                  className: 'bairro-watermark',
+                  html: `<span>${lyr.feature.properties.Nome}</span>`,
+                  iconSize: [200, 40],
+                  iconAnchor: [100, 20]
+                });
+                bairrosWatermarkLayer.addLayer(L.marker(latlng, { icon: divIcon, interactive: false }));
+              }
+            }
+          });
+          bairrosWatermarkLayer.addTo(map);
+        }
       } else {
         if (overlayMaps[overlayName]) {
           map.removeLayer(overlayMaps[overlayName]);
+        }
+        // Se for bairros, remove os rótulos estáticos
+        if (overlayName === 'bairros' && bairrosWatermarkLayer) {
+          map.removeLayer(bairrosWatermarkLayer);
+          bairrosWatermarkLayer = null;
         }
       }
     }
